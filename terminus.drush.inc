@@ -11,6 +11,13 @@ define('TERMINUS_HOST', 'terminus.getpantheon.com');
 define('TERMINUS_PORT', 443);
 date_default_timezone_set('UTC');
 
+// Requests - Library used for HTTP requests.
+require_once './vendor/rmccue/requests/library/Requests.php';
+Requests::register_autoloader();
+
+// Advanced configuration - make changes to this file if you need a proxy.
+require_once 'requests.conf.inc';
+
 /**
  * An easy function to override constants to allow development internally.
  *
@@ -732,49 +739,30 @@ function drush_terminus_pantheon_site_wake($site_uuid = FALSE, $environment = FA
   reset($hostnames);
   $hostname = key($hostnames);
 
-  $url = 'http://' . $hostname . '/pantheon_healthcheck';
+  $time_start = microtime(TRUE);
+  global $requests_options;
 
-  $ch = curl_init();
-  curl_setopt($ch, CURLOPT_URL, $url);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-  curl_setopt($ch, CURLOPT_HEADER, 1);
-  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-  curl_setopt($ch, CURLOPT_NOBODY, 1);
-
-  if (!$response = curl_exec($ch)) {
-    return drush_set_error('DRUSH_PSITE_WAKE_CURL_FAIL', curl_error($ch));
+  try {
+    $response = Requests::get('http://' . $hostname . '/pantheon_healthcheck', $requests_options);
+  }
+  catch (Requests_Exception $e) {
+    return drush_set_error('DRUSH_PSITE_WAKE_REQUEST_FAIL', $e->getMessage());
   }
 
-  $headers_exploded = explode("\n", $response);
-  $headers = array(
-    'status' => $headers_exploded[0],
-  );
-  array_shift($headers_exploded);
-
-  foreach($headers_exploded as $header) {
-    $key_value = explode(':', $header);
-    $key = trim($key_value[0]);
-    $value = trim($key_value[1]);
-    if ($key && ($key != $headers['status'])) {
-      $headers[$key] = $value;
-    }
-  }
-
-  $info = curl_getinfo($ch);
-  if ($info['http_code'] != 200) {
+  if ($response->status_code != 200) {
     return drush_set_error('DRUSH_PSITE_WAKE_HTTP_FAIL', dt('Request failed: @http_code', array(
-      '@http_code' => $info['http_code'],
+      '@http_code' => $response->status_code,
     )));
   }
 
-  if (!isset($headers['X-Pantheon-Styx-Hostname'])) {
-    return drush_set_error('DRUSH_PSITE_WAKE_NO_PHEADERS', 'Pantheon headers missing, which isn\'t quite right.');
+  if (!$response->headers->offsetGet('X-Pantheon-Styx-Hostname')) {
+    return drush_set_error('DRUSH_PSITE_WAKE_WRONG_HEADERS', dt("Pantheon headers missing, which isn't quite right."));
   }
 
   drush_log(dt('@site_name-@environment responded in @total_time seconds.', array(
     '@site_name' => $site_name,
     '@environment' => $environment,
-    '@total_time' => $info['total_time'],
+    '@total_time' => microtime(TRUE) - $time_start,
   )), 'ok');
 }
 

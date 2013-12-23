@@ -14,7 +14,7 @@ class terminusTest extends Drush_UnitTestCase {
     $this->testData = array(
       'valid_env_name' => '123-env',
       'invalid_env_characters' => '#$%^',
-      'invalid_env_long' => '123-enviornment',
+      'invalid_env_long' => '123-environment',
       'reserved_branch_names' => array(
         'dev',
         'test',
@@ -28,29 +28,29 @@ class terminusTest extends Drush_UnitTestCase {
   }
 
   public function testTerminusValidateEnvironment() {
-    // Test valid environment name
+    // Test valid environment name.
     $this->assertTrue(
       terminus_validate_environment($this->testData['valid_env_name'])
     );
 
-    // Test failure on invalid characters in environment name
+    // Test failure on invalid characters in environment name.
     $this->assertFalse(
       terminus_validate_environment($this->testData['invalid_env_characters'])
     );
 
-    // Test failure on environment name longer than 11 characters
+    // Test failure on environment name longer than 11 characters.
     $this->assertFalse(
       terminus_validate_environment($this->testData['invalid_env_long'])
     );
   }
 
   public function testTerminusReservedBranch() {
-    // Test non reserved branch name
+    // Test valid branch name.
     $this->assertFalse(
       terminus_is_reserved_branch_name($this->testData['valid_branch_name'])
     );
 
-    // Test against reserved names
+    // Test reserved names.
     foreach ($this->testData['reserved_branch_names'] as $reserved_name) {
       $this->assertTrue(
         terminus_is_reserved_branch_name($reserved_name)
@@ -59,12 +59,12 @@ class terminusTest extends Drush_UnitTestCase {
   }
 
   public function testTerminusValidateBranch() {
-    // Test valid branch name
+    // Test valid branch name.
     $this->assertTrue(
       terminus_validate_new_branch_name($this->testData['valid_branch_name'])
     );
 
-    // Test invalid branch names
+    // Test invalid branch names.
     $this->assertFalse(
       terminus_validate_new_branch_name($this->testData['invalid_env_characters'])
     );
@@ -72,7 +72,7 @@ class terminusTest extends Drush_UnitTestCase {
       terminus_validate_new_branch_name($this->testData['invalid_env_long'])
     );
 
-    // Test invalid environment names
+    // Test invalid environment names.
     $this->assertTrue(
       terminus_validate_new_branch_name($this->testData['valid_env_name'])
     );
@@ -84,17 +84,15 @@ class terminusTest extends Drush_UnitTestCase {
     );
   }
 
-  public function testTerminusValidateUUID() {
-    // Test valid UUID
+  public function testTerminusValidateUuid() {
+    // Test valid UUID.
     $this->assertTrue(
       terminus_validate_uuid($this->testData['valid_uuid'])
     );
 
-    // Test invalid UUID
+    // Test invalid UUID.
     $this->assertFalse(
       terminus_validate_uuid($this->testData['invalid_uuid'])
     );
   }
-
 }
-

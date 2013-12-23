@@ -78,6 +78,16 @@ Updates can be performed in the directory:
     # Clear Drush's cache.
     drush cc drush
 
+## Advanced configuration
+
+Terminus uses [Requests](https://github.com/rmccue/Requests) to simplify
+communication and to reduce overall dependencies.
+
+If you need a Proxy or other advanced configuration, make changes to
+requests.conf.inc. See the
+[Requests Documentation](https://github.com/rmccue/Requests/tree/master/docs)
+for details.
+
 ## Installing Terminus with Git
 
 If you are unable to use Composer, Terminus can be installed using git. This
