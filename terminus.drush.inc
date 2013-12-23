@@ -2848,28 +2848,34 @@ function drush_terminus_pantheon_aliases() {
   drush_log('Loading aliases from Pantheon.');
 
   // This one is a little wonky still. Goes to Drupal.
-  $ch = curl_init();
-  curl_setopt($ch, CURLOPT_COOKIE, $session_data['session']);
-  curl_setopt($ch, CURLOPT_HEADER, 0);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+  global $requests_options;
+  $options = array_merge(array(
+    'cookies' => array($session_data['session']),
+  ), $requests_options);
+
   $host = TERMINUS_HOST;
   if (isset($session_data['onebox']) && $session_data['onebox']) {
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
+    $options['verify'] = FALSE;
     $host = 'onebox.getpantheon.com';
   }
   $url = 'https://' . $host . '/users/'. $session_data['user_uuid'] . '/drushrc';
-  curl_setopt($ch, CURLOPT_URL, $url);
 
-  $result = curl_exec($ch);
-  if (!terminus_validate_palises($result)) {
+  $response = Requests::get($url, array(), $options);
+
+  // Should set a better error code than success if it expired.
+  if (strpos($response->body, 'Login to Pantheon')) {
+    terminus_pantheon_logout();
+    return drush_set_error('DRUSH_ALIASES_SESS_EXPIRED', dt('The Terminus session expired; you must log in again.'));
+  }
+
+  if (!terminus_validate_palises($response->body)) {
     return drush_set_error('DRUSH_ALIASES_UNVALIDATED', dt('Unable to fetch the aliases. Try again?'));
   }
 
   drush_log(dt('Writing aliases to @destination', array(
     '@destination' => drush_get_option('destination'),
   )));
-  fwrite($fh, $result);
+  fwrite($fh, $response->body);
   fclose($fh);
   drush_log('Pantheon aliases updated.', 'ok');
   drush_invoke('cache-clear', 'drush');
