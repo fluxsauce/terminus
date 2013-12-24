@@ -25,7 +25,7 @@ Requests::register_autoloader();
  *   Combined options.
  */
 function terminus_requests_options($options = array()) {
-  $session_data = drush_get_option('session_data');
+  $session_data = terminus_session_data();
   $terminus_options = array();
 
   // Session cookie.
