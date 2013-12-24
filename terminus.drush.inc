@@ -15,8 +15,54 @@ date_default_timezone_set('UTC');
 require_once './vendor/rmccue/requests/library/Requests.php';
 Requests::register_autoloader();
 
-// Advanced configuration - make changes to this file if you need a proxy.
-require_once 'requests.conf.inc';
+/**
+ * Unified configuration for Requests.
+ *
+ * @param array $options
+ *   Custom options for the command, if any.
+ *
+ * @return array
+ *   Combined options.
+ */
+function terminus_requests_options($options = array()) {
+  $session_data = drush_get_option('session_data');
+  $terminus_options = array();
+
+  // Session cookie.
+  if (isset($session_data['session']) && $session_data['session']) {
+    $terminus_options['cookies'] = array($session_data['session']);
+  }
+
+  // Pantheon internal development.
+  if ((isset($session_data['onebox']) && $session_data['onebox']) || drush_get_option('onebox')) {
+    $terminus_options['verify'] = $terminus_options['verifyname'] = FALSE;
+  }
+
+  // Advanced configuration - make changes to this array if you need a proxy.
+  // See https://github.com/rmccue/Requests/tree/master/docs for details.
+  $custom_default_options = array();
+
+  // Combine defaults.
+  $defaults = array_merge($terminus_options, $custom_default_options);
+
+  // Combine defaults with custom options.
+  return array_merge($defaults, $options);
+}
+
+/**
+ * Determining the Terminus API hostname.
+ *
+ * @return string
+ *   Hostname of the Terminus API.
+ */
+function terminus_get_host() {
+  $session_data = drush_get_option('session_data');
+  $host = TERMINUS_HOST;
+  if (isset($session_data['onebox']) && $session_data['onebox'] || drush_get_option('onebox')) {
+    $host = 'onebox.getpantheon.com';
+  }
+  return $host;
+}
 
 /**
  * An easy function to override constants to allow development internally.
@@ -740,10 +786,9 @@ function drush_terminus_pantheon_site_wake($site_uuid = FALSE, $environment = FA
   $hostname = key($hostnames);
 
   $time_start = microtime(TRUE);
-  global $requests_options;
 
   try {
-    $response = Requests::get('http://' . $hostname . '/pantheon_healthcheck', $requests_options);
+    $response = Requests::get('http://' . $hostname . '/pantheon_healthcheck', terminus_requests_options());
   }
   catch (Requests_Exception $e) {
     return drush_set_error('DRUSH_PSITE_WAKE_REQUEST_FAIL', $e->getMessage());
@@ -2848,19 +2893,14 @@ function drush_terminus_pantheon_aliases() {
   drush_log('Loading aliases from Pantheon.');
 
   // This one is a little wonky still. Goes to Drupal.
-  global $requests_options;
-  $options = array_merge(array(
-    'cookies' => array($session_data['session']),
-  ), $requests_options);
+  $url = 'https://' . terminus_get_host() . '/users/' . $session_data['user_uuid'] . '/drushrc';
 
-  $host = TERMINUS_HOST;
-  if (isset($session_data['onebox']) && $session_data['onebox']) {
-    $options['verify'] = FALSE;
-    $host = 'onebox.getpantheon.com';
+  try {
+    $response = Requests::get($url, array(), terminus_requests_options());
   }
-  $url = 'https://' . $host . '/users/'. $session_data['user_uuid'] . '/drushrc';
-
-  $response = Requests::get($url, array(), $options);
+  catch (Requests_Exception $e) {
+    return drush_set_error('DRUSH_ALIASES_REQUEST_FAIL', $e->getMessage());
+  }
 
   // Should set a better error code than success if it expired.
   if (strpos($response->body, 'Login to Pantheon')) {
@@ -2980,7 +3020,7 @@ function terminus_validate_session($data) {
 }
 
 /**
- * Make a request to the Dashbord's internal API.
+ * Make a request to the Dashboard's internal API.
  *
  * @param $realm
  *    Permissions realm for data request: currently "user" or "site" but in the
@@ -3005,13 +3045,11 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
   }
   $headers = array();
   $session_data = terminus_bootstrap(FALSE);
-  $host = TERMINUS_HOST;
   if (isset($session_data['onebox']) && $session_data['onebox']) {
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
-    $host = 'onebox.getpantheon.com';
   }
-  $url = 'https://'. $host . '/terminus.php?' . $realm . '=' . $uuid;
+  $url = 'https://'. terminus_get_host() . '/terminus.php?' . $realm . '=' . $uuid;
   if ($path) {
     $url .= '&path='. urlencode($path);
   }
@@ -3112,11 +3150,6 @@ function terminus_validate_email($email) {
  * Ensure cURL is enabled.
  */
 function drush_terminus_pantheon_auth_validate($email = FALSE) {
-  // Check to see if cURL is available.
-  if (!in_array('curl', get_loaded_extensions())) {
-    return drush_set_error('DRUSH_PSITE_AUTH_NOCURL', 'The version of PHP drush is using in ' . PHP_BINDIR . '/ does not have the cURL extension enabled. If you need to specify a different PHP binary, see https://drupal.org/node/1302418');
-  }
-
   // Check for last-used email.
   if (!$email) {
     $email_cache = drush_cache_get('terminus-last-email', 'pantheon-persist');
@@ -3138,7 +3171,6 @@ function drush_terminus_pantheon_auth_validate($email = FALSE) {
 
   // Make email available to actual function.
   drush_set_option('email', $email);
-  return TRUE;
 }
 
 /**
@@ -3156,7 +3188,7 @@ function terminus_pauth_login_get_form_build_id($html) {
   @$DOM->loadHTML($html);
   $login_form = $DOM->getElementById('atlas-login-form');
   if (!$login_form) {
-    return drush_set_error("Dashboard unavailable", "Dashboard unavailable: login endpoint not found.");
+    return FALSE;
   }
 
   foreach ($login_form->getElementsByTagName('input') as $input) {
@@ -3168,48 +3200,38 @@ function terminus_pauth_login_get_form_build_id($html) {
 }
 
 /**
- * Parse session expiration out of a header.
- * @param $session_header
+ * Parse session expiration out of header.
+ * @param $session_headers
  * @return int
  */
-function terminus_pauth_get_session_expiration_from_header($session_header) {
-  $session_info = explode('; ', $session_header);
-  foreach ($session_info as $pair) {
-    if (strpos($pair, 'expires') === 0) {
-      $expiration = explode('=', $pair);
-      return strtotime($expiration[1]);
+function terminus_pauth_get_session_expiration_from_headers($session_headers) {
+  foreach ($session_headers as $header) {
+    $session_info = explode('; ', $header);
+    foreach ($session_info as $pair) {
+      if (strpos($pair, 'expires') === 0) {
+        $expiration = explode('=', $pair);
+        return strtotime($expiration[1]);
+      }
     }
   }
 }
 
 /**
  * Parse session out of a header.
- * @param $header
+ * @param array $headers
  * @return string
  */
-function terminus_pauth_get_session_from_header($header) {
+function terminus_pauth_get_session_from_headers($headers) {
   $session = FALSE;
-  $set_cookie = explode('; ', $header);
-  foreach ($set_cookie as $cookie) {
-    if (strpos($cookie, 'SSESS') === 0) {
-      $session = $cookie;
+  foreach ($headers as $header) {
+    $set_cookie = explode('; ', $header);
+    foreach ($set_cookie as $cookie) {
+      if (strpos($cookie, 'SSESS') === 0) {
+        $session = $cookie;
+      }
     }
   }
   return $session;
-}
-
-/**
- * Parse user ID out of headers.
- * @param $headers
- * @return string
- */
-function terminus_pauth_get_user_uuid_from_headers($headers) {
-  $location_header = terminus_parse_drupal_headers($headers, 'Location');
-  if (!$location_header) {
-    return FALSE;
-  }
-  // https://terminus.getpantheon.com/users/UUID
-  return array_pop(explode('/', $location_header));
 }
 
 /**
@@ -3222,9 +3244,8 @@ function terminus_pauth_get_user_uuid_from_headers($headers) {
  * Many thanks to Amitai and the gang at: https://drupal.org/node/89710
  */
 function drush_terminus_pantheon_auth($email = FALSE) {
-  if (!$email) {
-    $email = drush_get_option('email');
-  }
+  $email = drush_get_option('email');
+
   // Flush existing data.
   drush_cache_clear_all('*', 'pantheon', TRUE);
   $session_data = terminus_bootstrap(FALSE);
@@ -3233,10 +3254,11 @@ function drush_terminus_pantheon_auth($email = FALSE) {
   if (!$nocache && isset($session_data['email'])) {
     drush_log(dt('Cached auth found for !email', array('!email' => $email)), 'notice');
     if (terminus_validate_session($session_data)) {
-      drush_log('Session still valid. Good to go!', 'ok');
+      drush_log(dt('Session still valid. Good to go!'), 'ok');
       return TRUE;
     }
   }
+
   $show_art = FALSE;
   $password = drush_get_option('password');
   if (!$password) {
@@ -3247,64 +3269,48 @@ function drush_terminus_pantheon_auth($email = FALSE) {
   }
   drush_log(dt('Authenticating as !email', array('!email' => $email)), 'ok');
 
-  $ch = curl_init();
-  $host = TERMINUS_HOST;
-  if (isset($session_data['onebox']) && $session_data['onebox']) {
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
-    $host = 'onebox.getpantheon.com';
+  $url = 'https://' . terminus_get_host() . '/login';
+
+  // Get the form build ID.
+  try {
+    $response = Requests::post($url, array(), array(), terminus_requests_options());
   }
-  $url = 'https://'. $host .'/login';
-  drush_log(dt('POSTing auth to: !url', array('!url' => $url)));
-  // Set URL and other appropriate options.
-  curl_setopt($ch, CURLOPT_URL, $url);
-  curl_setopt($ch, CURLOPT_HEADER, 0);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-
-  // Grab URL and pass it to the browser.
-  $result = curl_exec($ch);
-
-  if (curl_errno($ch) != 0) {
-    $err = curl_error($ch);
-    curl_close($ch);
-    return drush_set_error("Dashboard unavailable", "Dashboard unavailable: $err");
+  catch (Requests_Exception $e) {
+    return drush_set_error('DRUSH_PSITE_AUTH_REQUEST_FAIL', dt('Dashboard unavailable: @error', array(
+      '@error' => $e->getMessage(),
+    )));
   }
-
-  $form_build_id = terminus_pauth_login_get_form_build_id($result);
+  $form_build_id = terminus_pauth_login_get_form_build_id($response->body);
+  if (!$form_build_id) {
+    return drush_set_error('DRUSH_PSITE_AUTH_NO_FORM', dt('Dashboard endpoint unavailable.'));
+  }
 
   // Attempt to log in.
-  $login_data = array(
-    'email' => $email,
-    'password' => $password,
-    'form_build_id' => $form_build_id,
-    'form_id' => 'atlas_login_form',
-    'op' => 'Login',
-  );
-  curl_setopt($ch, CURLOPT_POST, 1);
-  curl_setopt($ch, CURLOPT_POSTFIELDS, $login_data);
-  curl_setopt($ch, CURLOPT_HEADER, 1);
-  $result = curl_exec($ch);
-
-  if (curl_errno($ch) != 0) {
-    $err = curl_error($ch);
-    return drush_set_error("Dashboard unavailable", "Dashboard unavailable: $err");
+  try {
+    $response = Requests::post($url, array(), array(
+      'email' => $email,
+      'password' => $password,
+      'form_build_id' => $form_build_id,
+      'form_id' => 'atlas_login_form',
+      'op' => 'Login',
+    ), terminus_requests_options(array('follow_redirects' => FALSE)));
+  }
+  catch (Requests_Exception $e) {
+    return drush_set_error('DRUSH_PSITE_AUTH_LOGIN_FAIL', dt('Dashboard login unavailable: @error', array(
+      '@error' => $e->getMessage(),
+    )));
   }
 
-  $set_cookie_header = terminus_parse_drupal_headers($result, 'Set-Cookie');
-  if (!$set_cookie_header) {
-    return drush_set_error("Failure!", 'Authentication failed. Please check your credentials and try again.');
-  }
-
-  $session = terminus_pauth_get_session_from_header($set_cookie_header);
+  $session = terminus_pauth_get_session_from_headers($response->headers->getValues('set-cookie'));
 
   if (!$session) {
     return drush_set_error("Failure!", 'Session not found. Please check your credentials and try again.');
   }
 
   // Get the UUID.
-  $user_uuid = terminus_pauth_get_user_uuid_from_headers($result);
+  $user_uuid = array_pop(explode('/', $response->headers->offsetGet('Location')));
   if (!terminus_validate_uuid($user_uuid)) {
-    return drush_set_error("Failure!", 'Could not determine user UUID. Please check your credentials and try again.');
+    return drush_set_error('DRUSH_PSITE_AUTH_NO_UUID', dt('Could not determine user UUID. Please check your credentials and try again.'));
   }
 
   drush_log('Success!', 'ok');
@@ -3316,7 +3322,7 @@ function drush_terminus_pantheon_auth($email = FALSE) {
   $data = array(
     'user_uuid' => $user_uuid,
     'session' => $session,
-    'session_expire_time' => terminus_pauth_get_session_expiration_from_header($set_cookie_header),
+    'session_expire_time' => terminus_pauth_get_session_expiration_from_headers($response->headers->getValues('set-cookie')),
     'email' => $email,
   );
 
@@ -3328,9 +3334,6 @@ function drush_terminus_pantheon_auth($email = FALSE) {
 
   // Store the session in drush cache.
   drush_cache_set('terminus-current-session', $data, 'pantheon');
-
-  // Close cURL resource, and free up system resources.
-  curl_close($ch);
 
   if ($show_art) {
     // ASCII ART FTW

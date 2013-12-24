@@ -84,7 +84,7 @@ Terminus uses [Requests](https://github.com/rmccue/Requests) to simplify
 communication and to reduce overall dependencies.
 
 If you need a Proxy or other advanced configuration, make changes to
-requests.conf.inc. See the
+terminus_requests_options() in terminus.drush.inc. See the
 [Requests Documentation](https://github.com/rmccue/Requests/tree/master/docs)
 for details.
 
