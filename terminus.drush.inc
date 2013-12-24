@@ -56,7 +56,7 @@ function terminus_requests_options($options = array()) {
  *   Hostname of the Terminus API.
  */
 function terminus_get_host() {
-  $session_data = drush_get_option('session_data');
+  $session_data = terminus_session_data();
   $host = TERMINUS_HOST;
   if (isset($session_data['onebox']) && $session_data['onebox'] || drush_get_option('onebox')) {
     $host = 'onebox.getpantheon.com';
@@ -3049,9 +3049,9 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
   }
-  $url = 'https://'. terminus_get_host() . '/terminus.php?' . $realm . '=' . $uuid;
+  $url = 'https://' . terminus_get_host() . '/terminus.php?' . $realm . '=' . $uuid;
   if ($path) {
-    $url .= '&path='. urlencode($path);
+    $url .= '&path=' . urlencode($path);
   }
   if ($data) {
     // $data for POSTs, PUTs, DELETEs are sent as JSON.
@@ -3327,7 +3327,7 @@ function drush_terminus_pantheon_auth($email = FALSE) {
   );
 
   // Pantheon internal development.
-  if ($session_data['onebox']) {
+  if (drush_get_option('onebox')) {
     // Mark this session as "forever onebox."
     $data['onebox'] = TRUE;
   }
