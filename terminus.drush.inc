@@ -3036,7 +3036,7 @@ function terminus_validate_session($data) {
  *    HTTP method (verb) to use.
  *
  * @param $data
- *    A native PHP data structure (int, string, arary or simple object) to be
+ *    A native PHP data structure (int, string, array or simple object) to be
  *    sent along with the request. Will be encoded as JSON for you.
  */
 function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data = NULL) {
@@ -3049,13 +3049,13 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
   // Prepare data for transport.
   if ($data) {
     $data = json_encode(array('data' => $data));
-    if (in_array($method, array('POST', 'PUT', 'DELETE'))) {
+    if (in_array($method, array('POST', 'PUT'))) {
       $headers = array(
         'Content-Type' => 'application/json',
         'Content-Length' => strlen($data),
       );
     }
-    else if ($method === 'GET') {
+    else if (in_array($method, array('GET', 'DELETE'))) {
       $url .= '?' . http_build_query($data);
     }
   }
@@ -3072,16 +3072,16 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
         $response = Requests::get($url, $headers, terminus_requests_options());
         break;
 
+      case 'DELETE':
+        $response = Requests::delete($url, $headers, terminus_requests_options());
+        break;
+
       case 'POST':
         $response = Requests::post($url, $headers, $data, terminus_requests_options());
         break;
 
       case 'PUT':
         $response = Requests::put($url, $headers, $data, terminus_requests_options());
-        break;
-
-      case 'DELETE':
-        $response = Requests::delete($url, $headers, terminus_requests_options());
         break;
 
       default:
@@ -3123,6 +3123,15 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
   );
 }
 
+/**
+ * Convert Requests headers array to flat strings.
+ *
+ * @param $headers
+ *   Array of Requests headers.
+ *
+ * @return array
+ *   Single key/value pairs.
+ */
 function terminus_requests_flatten_headers($headers) {
   $headers_flattened = array();
   foreach ($headers as $header => $data) {
@@ -3319,7 +3328,7 @@ function drush_terminus_pantheon_auth($email = FALSE) {
   $session = terminus_pauth_get_session_from_headers($response->headers->getValues('set-cookie'));
 
   if (!$session) {
-    return drush_set_error("Failure!", 'Session not found. Please check your credentials and try again.');
+    return drush_set_error('DRUSH_PSITE_AUTH_NO_SESS', dt('Session not found. Please check your credentials and try again.'));
   }
 
   // Get the UUID.
