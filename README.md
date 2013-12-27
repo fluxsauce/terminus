@@ -4,8 +4,9 @@ Terminus is a Drush-based CLI interface into the Pantheon core API via a
 pseudoproxy.
 
 Terminus is being developed initially to support some engineering and partner
-edge cases (DevOps shops, Kalabox, proviso), but we hope to make it a solid tool
-for all command-line and script-savvy developers.
+edge cases (DevOps shops, [Kalabox](http://www.kalamuna.com/products/kalabox),
+[proviso](https://github.com/proviso/proviso)), but we hope to make it a solid
+tool for all command-line and script-savvy developers.
 
 If you'd like to write your own code using Terminus as an example, other PHP
 libraries can be used to make direct API calls.
@@ -19,7 +20,8 @@ Travis CI status: [<img src="https://travis-ci.org/pantheon-systems/terminus.png
 ## Requirements
 
 * Drush 5.1 or higher - https://github.com/drush-ops/drush
-* PHP 5.3.3 or higher with cURL
+* PHP 5.3.3 or higher
+* [Requests](https://github.com/rmccue/Requests) (installed using Composer)
 
 ## Installing Terminus with Composer and Packagist
 
@@ -80,8 +82,8 @@ Updates can be performed in the directory:
 
 ## Advanced configuration
 
-Terminus uses [Requests](https://github.com/rmccue/Requests) to simplify
-communication and to reduce overall dependencies.
+Terminus uses Requests to simplify communication and to reduce overall
+dependencies.
 
 If you need a Proxy or other advanced configuration, make changes to
 terminus_requests_options() in terminus.drush.inc. See the
@@ -95,6 +97,9 @@ method is not recommended as dependencies will not be automatically installed if
 they're missing.
 
     git clone https://github.com/pantheon-systems/terminus.git $HOME/.drush/terminus
+    cd $HOME/.drush/terminus
+    mkdir -p vendor/rmccue
+    git clone git://github.com/rmccue/Requests.git vendor/rmccue/requests
     # Clear Drush's cache.
     drush cc drush
 

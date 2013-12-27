@@ -8,11 +8,10 @@
  * Some constants we use.
  */
 define('TERMINUS_HOST', 'terminus.getpantheon.com');
-define('TERMINUS_PORT', 443);
 date_default_timezone_set('UTC');
 
 // Requests - Library used for HTTP requests.
-require_once './vendor/rmccue/requests/library/Requests.php';
+require_once __DIR__ . '/vendor/rmccue/requests/library/Requests.php';
 Requests::register_autoloader();
 
 /**
@@ -26,7 +25,9 @@ Requests::register_autoloader();
  */
 function terminus_requests_options($options = array()) {
   $session_data = terminus_session_data();
-  $terminus_options = array();
+  $terminus_options = array(
+    'timeout' => 30,
+  );
 
   // Session cookie.
   if (isset($session_data['session']) && $session_data['session']) {
@@ -109,7 +110,7 @@ function terminus_bootstrap($validate = TRUE) {
 }
 
 /**
- * Implementation of hook_drush_command().
+ * Implements hook_drush_command().
  *
  * List of available terminus commands.
  *
@@ -120,34 +121,31 @@ function terminus_drush_command() {
   $items = array();
 
   $items['pantheon-logout'] = array(
-    'description' => "Clear any stored session data.",
-    'examples' => array(
-      'drush plogout',
-    ),
+    'description' => dt('Clear any stored session data.'),
     'aliases' => array('plogout'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
 
   $items['pantheon-auth'] = array(
-    'description' => "Authenticate against the Pantheon dashboard. Required before doing anything else.",
+    'description' => dt('Authenticate against the Pantheon dashboard; required for all Terminus operations.'),
     'arguments' => array(
-      'email' => 'Email address of dashboard account',
+      'email' => dt('Email address of dashboard account'),
     ),
     'options' => array(
       'password' => array(
-        'description' => 'Optional: include password for script-friendly use.',
+        'description' => dt('Optional: include password for script-friendly use.'),
         'example-value' => 'mypassword',
       ),
     ),
     'examples' => array(
-      'drush pauth josh@getpantheon.com --password=mypassword' => 'Get authentication token.',
+      'drush pauth josh@getpantheon.com --password=mypassword' => dt('Get authentication token.'),
     ),
     'aliases' => array('pauth'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
 
   $items['pantheon-sites'] = array(
-    'description' => 'List your Pantheon sites.',
+    'description' => dt('List your Pantheon sites.'),
     'examples' => array(
       'drush psites --nocache' => 'Get a fresh list of sites.',
     ),
@@ -156,31 +154,31 @@ function terminus_drush_command() {
   );
 
   $items['pantheon-site-attributes'] = array(
-    'description' => 'Get attributes for a particular site.',
+    'description' => dt('Get attributes for a particular site.'),
     'aliases' => array('psite-attr'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
     'arguments' => array(
-      'site' => 'The site UUID in question.',
+      'site' => dt('The site UUID in question.'),
     ),
     'options' => array(
       'attribute' => array(
-        'description' => 'Specific attribute that you want to get.',
+        'description' => dt('Specific attribute that you want to get.'),
         'example-value' => 'label',
       ),
     ),
   );
 
   $items['pantheon-site-branch-list'] = array(
-    'description' => 'List Git branches for a particular site.',
+    'description' => dt('List Git branches for a particular site.'),
     'aliases' => array('psite-blist'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
     'arguments' => array(
-      'site' => 'The site UUID in question.',
+      'site' => dt('The site UUID in question.'),
     ),
   );
 
   $items['pantheon-site-branch-create'] = array(
-    'description' => 'Create Git branch of master for a particular site.',
+    'description' => dt('Create Git branch of master for a particular site.'),
     'aliases' => array('psite-bcreate'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
     'arguments' => array(
@@ -195,7 +193,7 @@ function terminus_drush_command() {
   );
 
   $items['pantheon-site-branch-delete'] = array(
-    'description' => 'Delete a Git branch from a particular site.',
+    'description' => dt('Delete a Git branch from a particular site.'),
     'aliases' => array('psite-bdel'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
     'arguments' => array(
@@ -210,7 +208,7 @@ function terminus_drush_command() {
   );
 
   $items['pantheon-hostname-add'] = array(
-    'description' => "Add a hostname to a site you control.",
+    'description' => dt('Add a hostname to a site you control.'),
     'arguments' => array(
       'site' => 'The site UUID you are working on.',
       'environment' => 'The environment (e.g. "live").',
@@ -221,7 +219,7 @@ function terminus_drush_command() {
   );
 
   $items['pantheon-hostname-remove'] = array(
-    'description' => "Remove a hostname from a site you control.",
+    'description' => dt('Remove a hostname from a site you control.'),
     'arguments' => array(
       'site' => 'The site UUID you are working on.',
       'environment' => 'The environemnt (e.g. "live").',
@@ -1958,10 +1956,13 @@ function drush_terminus_pantheon_site_branch_create($site_uuid = FALSE) {
   $site_uuid = drush_get_option('site_uuid');
   $branch_name = drush_get_option('name');
   $result = terminus_api_code_branch_create($site_uuid, $branch_name);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_BCREATE_API', dt('Request to create branch failed.'));
+  }
 
   $json = json_decode($result['json']);
   if (!$json) {
-    return drush_set_error('DRUSH_PSITE_BCREATE_FAIL', 'Branch creation failed, typically because it already exists.');
+    return drush_set_error('DRUSH_PSITE_BCREATE_FAIL', dt('Branch creation failed, typically because it already exists.'));
   }
   drush_log(dt('Branch @branch created, commit ID #@commit', array(
     '@branch' => $branch_name,
@@ -3039,90 +3040,104 @@ function terminus_validate_session($data) {
  *    sent along with the request. Will be encoded as JSON for you.
  */
 function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data = NULL) {
-  static $ch = FALSE;
-  if (!$ch) {
-    $ch = curl_init();
-  }
   $headers = array();
-  $session_data = terminus_bootstrap(FALSE);
-  if (isset($session_data['onebox']) && $session_data['onebox']) {
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
-  }
   $url = 'https://' . terminus_get_host() . '/terminus.php?' . $realm . '=' . $uuid;
   if ($path) {
     $url .= '&path=' . urlencode($path);
   }
+
+  // Prepare data for transport.
   if ($data) {
-    // $data for POSTs, PUTs, DELETEs are sent as JSON.
-    if ($method === 'POST' || $method === 'PUT' || $method === 'DELETE') {
-      $data = json_encode(array('data' => $data));
-      curl_setopt($ch, CURLOPT_POST, 1);
-      curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-      curl_setopt($ch, CURLOPT_BINARYTRANSFER, TRUE);
-      array_push($headers, 'Content-Type: application/json', 'Content-Length: ' . strlen($data));
+    $data = json_encode(array('data' => $data));
+    if (in_array($method, array('POST', 'PUT', 'DELETE'))) {
+      $headers = array(
+        'Content-Type' => 'application/json',
+        'Content-Length' => strlen($data),
+      );
     }
-    // $data for GETs is sent as querystrings.
     else if ($method === 'GET') {
       $url .= '?' . http_build_query($data);
     }
   }
-  // set URL and other appropriate options
-  $opts = array(
-    CURLOPT_URL => $url,
-    CURLOPT_HEADER => 1,
-    CURLOPT_PORT => TERMINUS_PORT,
-    CURLOPT_RETURNTRANSFER => 1,
-    CURLOPT_TIMEOUT => 30,
-    CURLOPT_CUSTOMREQUEST => $method,
-    CURLOPT_COOKIE => $session_data['session'],
-    CURLOPT_HTTPHEADER => $headers,
-  );
-  curl_setopt_array($ch, $opts);
 
-  // Grab URL and pass it to the browser.
-  drush_log('Making API request.');
-  drush_log($url);
+  // Perform request.
+  drush_log(dt('Making API @method request to @url', array(
+    '@method' => $method,
+    '@url' => $url,
+  )));
+  $time_start = microtime(TRUE);
+  try {
+    switch ($method) {
+      case 'GET':
+        $response = Requests::get($url, $headers, terminus_requests_options());
+        break;
 
-  $result = curl_exec($ch);
-  list($headers_text, $json) = explode("\r\n\r\n", $result, 2);
-  // Work around extra 100 Continue headers - http://stackoverflow.com/a/2964710/1895669
-  if (strpos($headers_text," 100 Continue") !== FALSE) {
-    list($headers_text, $json) = explode("\r\n\r\n", $json , 2);
+      case 'POST':
+        $response = Requests::post($url, $headers, $data, terminus_requests_options());
+        break;
+
+      case 'PUT':
+        $response = Requests::put($url, $headers, $data, terminus_requests_options());
+        break;
+
+      case 'DELETE':
+        $response = Requests::delete($url, $headers, terminus_requests_options());
+        break;
+
+      default:
+        return drush_set_error('TERMINUS_API_METHOD', dt('Invalid method specified.'));
+        break;
+
+    }
+  }
+  catch (Requests_Exception $e) {
+    return drush_set_error('TERMINUS_API_FAIL', dt('Terminus API failure: @error', array(
+      '@error' => $e->getMessage(),
+    )));
   }
 
-  if (curl_errno($ch) != 0) {
-    $error = curl_error($ch);
-    curl_close($ch);
-    return drush_set_error('TERMINUS_API_CONNECTION_ERROR', "CONNECTION ERROR: $error");
-  }
-
-  $info = curl_getinfo($ch);
-  if ($info['http_code'] > 399) {
-    drush_log(dt('Request failed: @http_code @json', array(
-      '@http_code' => $info['http_code'],
-      '@json' => $json,
-    )), 'failed');
-    // Expired session. Really don't like the string comparison.
-    if ($info['http_code'] == 403 && $json == '"Session not found."') {
+  if ($response->status_code > 399) {
+    drush_set_error('TERMINUS_API_ERROR', dt('Terminus API returned error: @status_code @json', array(
+      '@status_code' => $response->status_code,
+      '@json' => $response->body,
+    )));
+    // Check for an expired session.
+    if ($response->status_code == 403 && $response->body == '"Session not found."') {
       terminus_pantheon_logout();
     }
     return FALSE;
   }
 
   drush_log(dt('Request complete in @seconds seconds.', array(
-    '@seconds' => $info['total_time'],
+    '@seconds' => microtime(TRUE) - $time_start,
   )));
-  drush_log("Response headers:\n"  .$headers_text);
-  if ($json) {
-    drush_log("JSON response:\n" . $json);
+
+  drush_log("Response headers:\n"  . var_export(terminus_requests_flatten_headers($response->headers), TRUE));
+  if ($response->body) {
+    drush_log("JSON response:\n" . $response->body);
   }
 
-  return array('headers' => $headers_text, 'json' => $json);
+  return array(
+    'headers' => $response->headers,
+    'json' => $response->body,
+  );
+}
+
+function terminus_requests_flatten_headers($headers) {
+  $headers_flattened = array();
+  foreach ($headers as $header => $data) {
+    $headers_flattened[$header] = $headers->flatten($headers[$header]);
+  }
+  return $headers_flattened;
 }
 
 /**
- * Clean up output so there are consistent service level names.
+ * Normalize service levels.
+ *
+ * @param string $level
+ *   Level returned by Pantheon.
+ * @return string
+ *   Normalized service level.
  */
 function _terminus_service_level_name($level) {
   $levels = array(
