@@ -420,16 +420,67 @@ function terminus_drush_command() {
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
 
-  $items['pantheon-site-notifications'] = array(
-    'description' => 'Get a list of notifications for a site to track ongoing jobs.',
+  $items['pantheon-site-environment-lock'] = array(
+    'description' => dt('Lock a site environment.'),
     'arguments' => array(
-      'site' => 'UUID or name of the site.',
+      'site' => dt('UUID or name of the site.'),
+      'environment' => dt('Name of site environment.'),
+      'username' => dt('Username for HTTP Basic Auth'),
+      'password' => dt('Password for HTTP Basic Auth'),
+    ),
+    'aliases' => array('psite-elo'),
+    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
+  );
+
+  $items['pantheon-site-environment-unlock'] = array(
+    'description' => dt('Unlock a site environment.'),
+    'arguments' => array(
+      'site' => dt('UUID or name of the site.'),
+      'environment' => dt('Name of site environment.'),
+    ),
+    'aliases' => array('psite-eul'),
+    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
+  );
+
+  $items['pantheon-site-environment-lock-info'] = array(
+    'description' => dt('Get information about whether a site environment is locked.'),
+    'arguments' => array(
+      'site' => dt('UUID or name of the site.'),
+      'environment' => dt('Name of site environment.'),
+    ),
+    'aliases' => array('psite-eli'),
+    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
+  );
+
+  $items['pantheon-site-notifications'] = array(
+    'description' => dt('Get a list of notifications for a site.'),
+    'arguments' => array(
+      'site' => dt('UUID of the site.'),
     ),
     'options' => array(
-      'count' => 'Number of notifications to show',
-      'type' => 'Filter notifications by type',
+      'count' => dt('Number of notifications to show'),
+      'type' => dt('Filter notifications by type'),
     ),
     'aliases' => array('psite-notifications'),
+    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
+  );
+
+  $items['pantheon-site-jobs'] = array(
+    'description' => dt('Get a list of jobs for a site.'),
+    'arguments' => array(
+      'site' => dt('UUID of the site.'),
+    ),
+    'options' => array(
+      'environment' => array(
+        'description' => dt('Filter jobs by environment'),
+        'example-value' => 'dev',
+      ),
+      'slot' => array(
+        'description' => dt('Filter by slot'),
+        'example-value' => 'cache_clear',
+      ),
+    ),
+    'aliases' => array('psite-jobs'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
 
@@ -447,12 +498,12 @@ function terminus_drush_command() {
   );
 
   $items['pantheon-site-name'] = array(
-    'description' => "Get the site name based on the UUID.",
+    'description' => dt('Get the site name from UUID.'),
     'arguments' => array(
-      'uuid' => 'UUID of the site.',
+      'uuid' => dt('UUID of the site.'),
     ),
     'examples' => array(
-      'drush psite-name 12345678-1234-abcd-9876-fedcba09 --nocache' => 'Get the name of your site.',
+      'drush psite-name 12345678-1234-abcd-9876-fedcba09 --nocache' => dt('Get the name of your site.'),
     ),
     'required-arguments' => TRUE,
     'aliases' => array('psite-name'),
@@ -746,6 +797,168 @@ function terminus_drush_command() {
  */
 
 /**
+ * Validate site environment lock.
+ */
+function drush_terminus_pantheon_site_environment_lock_validate($site_uuid = FALSE, $environment = FALSE, $username = FALSE, $password = FALSE) {
+  $session_data = terminus_bootstrap();
+  if ($session_data === FALSE) {
+    return drush_set_error('DRUSH_PSITE_LOCK_NO_SESSION', dt('You must authenticate before using this command.'));
+  }
+
+  if (!$site_uuid = terminus_site_input($site_uuid, TRUE, TRUE)) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INVALID_UUID', dt('You must specify a valid site UUID.'));
+  }
+  drush_set_option('site_uuid', $site_uuid);
+
+  if (!terminus_validate_environment($environment)) {
+    if (!$environment = terminus_session_select_data('environment', $site_uuid)) {
+      return drush_set_error('DRUSH_PSITE_LOCK_INVALID_ENV', dt('You must specify a valid environment name.'));
+    }
+  }
+  drush_set_option('environment', $environment);
+
+  $result = terminus_api_site_environment_lock_info($site_uuid, $environment);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INFO_REQFAIL', dt('Unable to get lock information.'));
+  }
+  $lock = json_decode($result['json']);
+  if ($lock->locked) {
+    return drush_set_error('DRUSH_PSITE_LOCK_ALREADY_LOCKED', dt('Already locked!'));
+  }
+
+  if (!$username) {
+    if (!$username = drush_prompt(dt('Username'))) {
+      return drush_user_abort();
+    }
+  }
+  drush_set_option('username', $username);
+
+  if (!$password) {
+    if (!$password = drush_prompt(dt('Password'))) {
+      return drush_user_abort();
+    }
+  }
+  drush_set_option('password', $password);
+}
+
+/**
+ * Lock a site environment.
+ */
+function drush_terminus_pantheon_site_environment_lock($site_uuid = FALSE, $environment = FALSE, $username = FALSE, $password = FALSE) {
+  $site_uuid = drush_get_option('site_uuid');
+  $environment = drush_get_option('environment');
+  $username = drush_get_option('username');
+  $password = drush_get_option('password');
+
+  $result = terminus_api_site_environment_lock($site_uuid, $environment, $username, $password);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_LOCK_REQFAIL', dt('Unable to lock.'));
+  }
+  drush_log(dt('@site_name @environment is now locked.', array(
+    '@site_name' => terminus_pantheon_site_name($site_uuid),
+    '@environment' => $environment,
+  )), 'ok');
+}
+
+/**
+ * Validate site environment unlock.
+ */
+function drush_terminus_pantheon_site_environment_unlock_validate($site_uuid = FALSE, $environment = FALSE) {
+  $session_data = terminus_bootstrap();
+  if ($session_data === FALSE) {
+    return drush_set_error('DRUSH_PSITE_UNLOCK_NO_SESSION', dt('You must authenticate before using this command.'));
+  }
+
+  if (!$site_uuid = terminus_site_input($site_uuid, TRUE, TRUE)) {
+    return drush_set_error('DRUSH_PSITE_UNLOCK_INVALID_UUID', dt('You must specify a valid site UUID.'));
+  }
+  drush_set_option('site_uuid', $site_uuid);
+
+  if (!terminus_validate_environment($environment)) {
+    if (!$environment = terminus_session_select_data('environment', $site_uuid)) {
+      return drush_set_error('DRUSH_PSITE_UNLOCK_INVALID_ENV', dt('You must specify a valid environment name.'));
+    }
+  }
+  drush_set_option('environment', $environment);
+
+  $result = terminus_api_site_environment_lock_info($site_uuid, $environment);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INFO_REQFAIL', dt('Unable to get lock information.'));
+  }
+  $lock = json_decode($result['json']);
+  if (!$lock->locked) {
+    return drush_set_error('DRUSH_PSITE_UNLOCK_ALREADY_UNLOCKED', dt('Already unlocked!'));
+  }
+}
+
+/**
+ * Unlock a site environment.
+ */
+function drush_terminus_pantheon_site_environment_unlock($site_uuid = FALSE, $environment = FALSE) {
+  $site_uuid = drush_get_option('site_uuid');
+  $environment = drush_get_option('environment');
+
+  $result = terminus_api_site_environment_lock_delete($site_uuid, $environment);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_UNLOCK_REQFAIL', dt('Unable to unlock.'));
+  }
+  drush_log(dt('@site_name @environment is now unlocked.', array(
+    '@site_name' => terminus_pantheon_site_name($site_uuid),
+    '@environment' => $environment,
+  )), 'ok');
+}
+
+/**
+ * Validate Pantheon site environment lock info.
+ */
+function drush_terminus_pantheon_site_environment_lock_info_validate($site_uuid = FALSE, $environment = FALSE) {
+  $session_data = terminus_bootstrap();
+  if ($session_data === FALSE) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INFO_NO_SESSION', dt('You must authenticate before using this command.'));
+  }
+
+  if (!$site_uuid = terminus_site_input($site_uuid, TRUE, TRUE)) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INFO_INVALID_UUID', dt('You must specify a valid site UUID.'));
+  }
+  drush_set_option('site_uuid', $site_uuid);
+
+  if (!terminus_validate_environment($environment)) {
+    if (!$environment = terminus_session_select_data('environment', $site_uuid)) {
+      return drush_set_error('DRUSH_PSITE_LOCK_INFO_INVALID_ENV', dt('You must specify a valid environment name.'));
+    }
+  }
+  drush_set_option('environment', $environment);
+}
+
+/**
+ * Get lock info for a site environment.
+ */
+function drush_terminus_pantheon_site_environment_lock_info($site_uuid = FALSE, $environment = FALSE) {
+  $site_uuid = drush_get_option('site_uuid');
+  $environment = drush_get_option('environment');
+
+  $result = terminus_api_site_environment_lock_info($site_uuid, $environment);
+  if (!$result) {
+    return drush_set_error('DRUSH_PSITE_LOCK_INFO_REQFAIL', dt('Unable to get lock information.'));
+  }
+  $lock = json_decode($result['json']);
+  if (!$lock->locked) {
+    drush_print(dt('@site_name @environment is unlocked.', array(
+      '@site_name' => terminus_pantheon_site_name($site_uuid),
+      '@environment' => $environment,
+    )));
+  }
+  else {
+    drush_print(dt('@site_name @environment is locked with username "@username" and password "@password".', array(
+      '@site_name' => terminus_pantheon_site_name($site_uuid),
+      '@environment' => $environment,
+      '@username' => $lock->username,
+      '@password' => $lock->password,
+    )));
+  }
+}
+
+/**
  * Validate Pantheon site wake.
  */
 function drush_terminus_pantheon_site_wake_validate($site_uuid = FALSE, $environment = FALSE) {
@@ -998,26 +1211,49 @@ function drush_terminus_pantheon_sites() {
 }
 
 /**
- * Validation for the list of Pantheon sites.
+ * Sanitize the machine name of a site.
+ *
+ * @param $name
+ *
+ * @return string
+ *   Alpha-numeric and dashes, no spaces.
+ */
+function terminus_site_name_sanitize($name) {
+  // Trim.
+  $name = trim($name);
+  // Lowercase.
+  $name = strtolower($name);
+  // Replace spaces with dashes.
+  $name = preg_replace('/[\s]+/', '-', $name);
+  // Alpha-numeric and dash.
+  $name = preg_replace('/[^\da-z-]/', '', $name);
+  return $name;
+}
+
+/**
+ * Validation for site import.
  */
 function drush_terminus_pantheon_site_import_validate($name = FALSE, $url = FALSE) {
+  // Session data, required to know the current user.
   $session_data = terminus_bootstrap();
   if ($session_data === FALSE) {
-    return drush_set_error('DRUSH_PSITE_IMPORT_NO_SESSION', 'You must authenticate before using this command.');
+    return drush_set_error('DRUSH_PSITE_IMPORT_NO_SESSION', dt('You must authenticate before using this command.'));
   }
   drush_set_option('session_data', $session_data);
 
-  if (!$name) {
-    if (!$name = terminus_session_select_data('site_name')) {
-      return drush_set_error('DRUSH_PSITE_IMPORT_NO_NAME', 'You must supply a site name!');
-    }
-  }
-  drush_set_option('name', preg_replace("/[^A-Za-z0-9 -]/", '', $name));
-
+  // Human readable label.
   if (!$label = drush_get_option('label')) {
-    $label = terminus_session_select_data('site_label');
+    $label = terminus_session_select_data('site_label', NULL, NULL, NULL, NULL, $name);
   }
   drush_set_option('label', $label);
+
+  // Machine name.
+  if (!$name) {
+    if (!$name = terminus_session_select_data('site_name', NULL, NULL, NULL, NULL, terminus_site_name_sanitize($label))) {
+      return drush_set_error('DRUSH_PSITE_IMPORT_NO_NAME', dt('You must supply a site name!'));
+    }
+  }
+  drush_set_option('name', terminus_site_name_sanitize($name));
 
   if (!$url) {
     $url = drush_prompt(dt('URL containing Drush archive'), NULL, TRUE);
@@ -1099,21 +1335,23 @@ function drush_terminus_pantheon_site_import($name = FALSE, $url = FALSE) {
 function drush_terminus_pantheon_site_create_validate($name = FALSE) {
   $session_data = terminus_bootstrap();
   if ($session_data === FALSE) {
-    return drush_set_error('DRUSH_PSITE_CREATE_NO_SESSION', 'You must authenticate before using this command.');
+    return drush_set_error('DRUSH_PSITE_CREATE_NO_SESSION', dt('You must authenticate before using this command.'));
   }
   drush_set_option('session_data', $session_data);
 
-  if (!$name) {
-    if (!$name = terminus_session_select_data('site_name')) {
-      return drush_set_error('DRUSH_PSITE_CREATE_NO_NAME', 'You must supply a site name!');
-    }
-  }
-  drush_set_option('name', preg_replace("/[^A-Za-z0-9 -]/", '', $name));
-
+  // Human readable label.
   if (!$label = drush_get_option('label')) {
-    $label = terminus_session_select_data('site_label');
+    $label = terminus_session_select_data('site_label', NULL, NULL, NULL, NULL, $name);
   }
   drush_set_option('label', $label);
+
+  // Machine name.
+  if (!$name) {
+    if (!$name = terminus_session_select_data('site_name', NULL, NULL, NULL, NULL, terminus_site_name_sanitize($label))) {
+      return drush_set_error('DRUSH_PSITE_IMPORT_NO_NAME', dt('You must supply a site name!'));
+    }
+  }
+  drush_set_option('name', terminus_site_name_sanitize($name));
 
   if (!$organization = drush_get_option('organization')) {
     $organization = terminus_session_select_data('organization');
@@ -1124,7 +1362,7 @@ function drush_terminus_pantheon_site_create_validate($name = FALSE) {
     $product = drush_get_option('product');
   }
   else if (!$product = terminus_session_select_data('product')) {
-    return drush_set_error('DRUSH_PSITE_CREATE_NO_PRODUCT', 'You must specify a starting state!');
+    return drush_set_error('DRUSH_PSITE_CREATE_NO_PRODUCT', dt('You must specify a starting state!'));
   }
   drush_set_option('product', $product);
 }
@@ -1141,10 +1379,10 @@ function drush_terminus_pantheon_site_create($name = FALSE) {
   $label = drush_get_option('label');
   $product = drush_get_option('product');
 
-  drush_log("Queuing build.", "ok");
+  drush_log(dt('Queuing build.'), 'ok');
   $result = terminus_api_user_site_create($user_uuid, $name, $label, $organization, $product);
   if (!$result) {
-    return drush_set_error('DRUSH_PSITE_CREATE_FAILED', 'Site creation failed.');
+    return drush_set_error('DRUSH_PSITE_CREATE_FAILED', dt('Site creation failed.'));
   }
   if (isset($json_output) && isset($result['json'])  && $result['json']) {
     drush_print($result['json']);
@@ -1152,8 +1390,10 @@ function drush_terminus_pantheon_site_create($name = FALSE) {
   }
 
   $site_uuid = json_decode($result['json']);
-  drush_log("Your new site is now building.", "ok");
-  drush_print("The site's UUID is '" . $site_uuid . "'");
+  drush_log(dt('Your new site "@name" is now building with UUID "@site_uuid".', array(
+    '@name' => $name,
+    '@site_uuid' => $site_uuid,
+  )), 'ok');
   drush_cache_clear_all('terminus-sites', 'pantheon', TRUE);
   drush_cache_clear_all('terminus-user-sites-' . $user_uuid, 'pantheon', TRUE);
   if ($organization) {
@@ -1162,16 +1402,15 @@ function drush_terminus_pantheon_site_create($name = FALSE) {
 
   // Poll for completion.
   if (drush_get_option('nopoll')) {
-    drush_log("No-poll option detected. Check your dashboard to see when this site is ready.");
+    drush_log(dt('Not polling for completion; check your dashboard to see when this site is ready.'));
     return TRUE;
   }
-  drush_print(dt('Waiting for site spinup to complete. You can cancel at any point and the process will continue in the background.'));
+  drush_print(dt('Waiting for site spin-up to complete. You can cancel at any point and the process will continue in the background.'));
 
   terminus_site_creation_poll($site_uuid);
 
-  drush_print("Your site is now ready! Manage it from the dashboard:");
-  drush_print("https://dashboard.getpantheon.com/sites/$site_uuid");
-  return TRUE;
+  drush_log(dt('Your site is now ready! Manage it from the dashboard:'), 'ok');
+  drush_print('https://dashboard.getpantheon.com/sites/' . $site_uuid);
 }
 
 /**
@@ -1213,6 +1452,36 @@ function terminus_site_creation_poll($site_uuid) {
   // Wait for the sync code job to complete.
   drush_print("Creating git repository and deploying code to dev.");
   terminus_notification_poll($site_uuid, 'chef_solo_sync_code');
+  echo ' ' . dt('Complete!') . "\n";
+}
+
+/**
+ * @param string $site_uuid
+ * @param string $slot
+ */
+function terminus_job_poll($site_uuid, $slot) {
+  // Require a valid UUID.
+  if (!terminus_validate_uuid($site_uuid)) {
+    return FALSE;
+  }
+  // Require type.
+  if (!$slot) {
+    return FALSE;
+  }
+
+  while (TRUE) {
+    echo '.';
+    sleep(5);
+    $jobs = terminus_jobs_list($site_uuid, FALSE, $slot);
+    foreach ($jobs as $job) {
+      if ($job['completed']) {
+        if ($job['status'] != 'SUCCESS') {
+          return FALSE;
+        }
+        return TRUE;
+      }
+    }
+  }
 }
 
 /**
@@ -1414,8 +1683,11 @@ function drush_terminus_pantheon_site_delete($site_uuid = FALSE) {
   }
 
   $result = terminus_api_site_delete($site_uuid);
-  drush_log("Site deleted.", "ok");
-  drush_cache_clear_all('terminus-sites', 'pantheon');
+  if (!$result) {
+    return drush_set_error('PSITE_DELETE_API', dt('Unable to delete site, try again?'));
+  }
+  drush_log(dt('Site deleted.'), 'ok');
+  drush_cache_clear_all('terminus-sites', 'pantheon', TRUE);
   return TRUE;
 }
 
@@ -2096,19 +2368,32 @@ function drush_terminus_pantheon_site_environment_create_validate($site_uuid = F
     return drush_set_error('DRUSH_PSITE_ECREATE_NO_SESSION', 'You must authenticate before using this command.');
   }
 
+  // Site UUID validation.
+  if (!$site_uuid) {
+    if (!$site_uuid = terminus_site_input($site_uuid)) {
+      return drush_user_abort();
+    }
+  }
   if (!terminus_validate_uuid($site_uuid)) {
     return drush_set_error('DRUSH_PSITE_ECREATE_INVALID_UUID', 'You must specify a valid site UUID.');
   }
+  drush_set_option('site_uuid', $site_uuid);
 
+  // New environment validation.
   if (!terminus_validate_environment($new_environment)) {
-    return drush_set_error('DRUSH_PSITE_ECREATE_INVALID_NEW_ENV', 'You must specify a valid new environment name.');
+    if (!$new_environment = drush_prompt(dt('New environment name'))) {
+      return drush_set_error('DRUSH_PSITE_ECREATE_INVALID_NEW_ENV', 'You must specify a valid new environment name.');
+    }
   }
   if (terminus_is_reserved_branch_name($new_environment)) {
-    return drush_set_error('DRUSH_PSITE_ECREATE_RESERVED_ENV', 'Why are you trying to create a reserved environment name? Bad idea.');
+    return drush_set_error('DRUSH_PSITE_ECREATE_RESERVED_ENV', dt('@new_environment is a reserved environment name.', array(
+      '@new_environment' => $new_environment,
+    )));
   }
+  drush_set_option('new_environment', $new_environment);
 
+  // Source environment validation.
   $env_source = drush_get_option('source');
-
   if ($env_source && !terminus_validate_environment($env_source)) {
     return drush_set_error('DRUSH_PSITE_ECREATE_INVALID_SOURCE', 'You must specify a valid source environment name.');
   }
@@ -2121,7 +2406,10 @@ function drush_terminus_pantheon_site_environment_create_validate($site_uuid = F
 /**
  * Create a multidev environment.
  */
-function drush_terminus_pantheon_site_environment_create($site_uuid, $new_environment) {
+function drush_terminus_pantheon_site_environment_create($site_uuid = FALSE, $new_environment = FALSE) {
+  $site_uuid = drush_get_option('site_uuid');
+  $new_environment = drush_get_option('new_environment');
+
   // Check to see if branch exists.
   $branch_result = terminus_api_code_tips($site_uuid);
   $branches = json_decode($branch_result['json']);
@@ -2146,37 +2434,43 @@ function drush_terminus_pantheon_site_environment_create($site_uuid, $new_enviro
   if (!$result_env_create) {
     return drush_set_error('DRUSH_PSITE_ECREATE_FAIL', 'Unable to create new environment.');
   }
-
-  // Wait...
-  terminus_notification_poll($site_uuid, 'chef_solo_bindings');
-  drush_log(' ' . 'Environment created.', 'ok');
+  if (terminus_job_poll($site_uuid, 'converge_binding_' . $new_environment)) {
+    drush_print(' ' . dt('environment created.'));
+  }
+  else {
+    return drush_set_error(dt('Problem creating environment!'));
+  }
 
   // Clone files...
   $env_source = drush_get_option('source');
-
   drush_print(dt('Cloning files from @env_source...', array(
     '@env_source' => $env_source,
   )), 0, NULL, FALSE);
-
   $result_clone_files = terminus_api_environment_clone_files($site_uuid, $env_source, $new_environment);
   drush_log(json_decode($result_clone_files['json']));
-  terminus_notification_poll($site_uuid, 'ellis_clone_files');
+  if (terminus_job_poll($site_uuid, 'clone_files_from_' . $env_source . '_to_' . $new_environment)) {
+    drush_print(' ' . dt('files cloned.'));
+  }
+  else {
+    return drush_set_error(dt('Problem cloning files!'));
+  }
 
-  drush_log(dt('file cloning complete.'), 'ok');
-
+  // Clone database...
   drush_print(dt('Cloning database from @env_source...', array(
     '@env_source' => $env_source,
   )), 0, NULL, FALSE);
-
   $result_clone_db = terminus_api_environment_clone_database($site_uuid, $env_source, $new_environment, FALSE);
   drush_log(json_decode($result_clone_db['json']));
-  terminus_notification_poll($site_uuid, 'ellis_clone_database');
-
-  drush_log(dt('database cloning complete'), 'ok');
+  if (terminus_job_poll($site_uuid, 'clone_database_from_' . $env_source . '_to_' . $new_environment)) {
+    drush_print(' ' . dt('database cloned.'));
+  }
+  else {
+    return drush_set_error(dt('Problem cloning database!'));
+  }
 
   drush_log(dt('Environment @new_environment is ready!', array(
     '@new_environment' => $new_environment,
-  )));
+  )), 'ok');
 }
 
 /**
@@ -2402,7 +2696,106 @@ function termins_render_diffstat($site_uuid, $environment) {
 }
 
 /**
- * Get a list of notifications for a site to track ongoing jobs.
+ * Validate job list command.
+ */
+function drush_terminus_pantheon_site_jobs_validate($site_uuid = FALSE) {
+  $session_data = terminus_bootstrap();
+  if ($session_data === FALSE) {
+    return drush_set_error('DRUSH_PSITE_JOBS_NO_SESSION', dt('You must authenticate before using this command.'));
+  }
+
+  if (!$site_uuid) {
+    if (!$site_uuid = terminus_site_input($site_uuid)) {
+      return drush_user_abort();
+    }
+  }
+  if (!terminus_validate_uuid($site_uuid)) {
+    return drush_set_error('DRUSH_PSITE_JOBS_INVALID_UUID', dt('You must specify a valid site UUID.'));
+  }
+  drush_set_option('site_uuid', $site_uuid);
+}
+
+/**
+ * Get a list of jobs for a site.
+ */
+function drush_terminus_pantheon_site_jobs($site_uuid = FALSE) {
+  $site_uuid = drush_get_option('site_uuid');
+
+  $environment = drush_get_option('environment');
+  $slot = drush_get_option('slot');
+
+  $jobs = terminus_jobs_list($site_uuid, $environment, $slot);
+
+  if (empty($jobs)) {
+    return drush_print(dt('No jobs match.'));
+  }
+
+  $rows = array();
+
+  foreach ($jobs as $job) {
+    $rows[] = array(
+      $job['slot'],
+      $job['name'],
+      $job['env'],
+      $job['completed'] ? 'Y' : 'N',
+      $job['status'],
+      round($job['duration_ms'] / 1000, 2) . 's',
+      date(DATE_RFC822, $job['updated']),
+    );
+  }
+
+  array_unshift($rows, array('Slot', 'Name', 'Env', 'Completed', 'Status', 'Duration', 'Updated'));
+  drush_print_table($rows, TRUE);
+}
+
+/**
+ * Parse and filter jobs for a site.
+ *
+ * @param string $site_uuid
+ *   Site Unique ID.
+ * @param string $environment
+ *   Optional; filters by site environment.
+ * @param string $slot
+ *   Optional; filters by slot (like a category).
+ *
+ * @return array
+ *   Jobs sorted by most recent.
+ */
+function terminus_jobs_list($site_uuid, $environment = FALSE, $slot = FALSE) {
+  $response = terminus_api_site_get_jobs($site_uuid);
+  if (!$response) {
+    return drush_set_error('DRUSH_PSITE_JOBS_EMPTY', dt('No response for site jobs!'));
+  }
+  $jobs = (array) json_decode($response['json']);
+
+  $rows = array();
+  foreach ($jobs as $job_id => $job) {
+    // Filter by environment.
+    if ($environment && $environment != $job->environment) {
+      continue;
+    }
+    // Filter by slot.
+    if ($slot && strpos($job->slot, $slot) === FALSE) {
+      continue;
+    }
+    $job_time = strtotime($job->changed);
+    $job_uid = $job_time . '-' . $job->slot;
+    $rows[$job_uid] = array(
+      'slot' => $job->slot,
+      'name' => $job->human_name,
+      'env' => $job->environment,
+      'completed' => in_array($job->phase, array('FINISHED', 'COMPLETED')) ? TRUE : FALSE,
+      'status' => $job->status,
+      'duration_ms' => $job->estimated_duration,
+      'updated' => $job_time,
+    );
+  }
+  krsort($rows);
+  return $rows;
+}
+
+/**
+ * Get a list of notifications for a site.
  */
 function drush_terminus_pantheon_site_notifications($site_uuid = FALSE) {
   $session_data = terminus_bootstrap();
@@ -3540,14 +3933,14 @@ function terminus_session_select_data($key, $site_uuid = NULL, $environment = NU
       break;
 
     case 'site_name':
-      $val = drush_prompt('Provide a name for the site. This will be part of the default URL');
+      $val = drush_prompt('Machine name of the site; used as part of the default URL', $default);
       if ($val !== FALSE) {
         return $val;
       }
       break;
 
     case 'site_label':
-      $val = drush_prompt('Display name for the site');
+      $val = drush_prompt('Human readable label for the site', $default);
       if ($val !== FALSE) {
         return $val;
       }
@@ -3668,6 +4061,13 @@ function terminus_latest_bucket($site_uuid, $environment, $element = NULL) {
  * Helper function to handle site UUID input.
  */
 function terminus_site_input($site_input = FALSE, $prompt = TRUE, $uuid_only = FALSE) {
+  if (!terminus_validate_uuid($site_input) && $site_input) {
+    // Try to guess based on name.
+    $guessed_uuid = terminus_get_site_uuid_by_name($site_input);
+    if (terminus_validate_uuid($guessed_uuid)) {
+      return $guessed_uuid;
+    }
+  }
   if (!$site_input && $prompt) {
     $site_input = terminus_session_select_data('site_uuid');
   }

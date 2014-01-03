@@ -371,6 +371,17 @@ function terminus_api_site_environment_lock_delete($site_uuid, $environment) {
 }
 
 /**
+ * API call get lock info for an environment.
+ */
+function terminus_api_site_environment_lock_info($site_uuid, $environment) {
+  $realm = 'site';
+  $path = 'environments/' . $environment . '/lock';
+  $method = 'GET';
+
+  return terminus_request($realm, $site_uuid, $path, $method);
+}
+
+/**
  * API call to get hostnames for an environment.
  */
 function terminus_api_site_environment_hostnames($site_uuid, $environment) {
@@ -456,4 +467,15 @@ function terminus_api_site_bindings($site_uuid) {
   $method = 'GET';
 
   return terminus_request($realm, $site_uuid, $path, $method);
+}
+
+/**
+ * API Function to get jobs for a site.
+ */
+function terminus_api_site_get_jobs($site_uuid) {
+  $realm = 'site';
+  $uuid = $site_uuid;
+  $path = 'jobs';
+  $method = 'GET';
+  return terminus_request($realm, $uuid, $path, $method);
 }
