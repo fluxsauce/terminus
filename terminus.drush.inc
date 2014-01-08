@@ -3442,13 +3442,13 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
   // Prepare data for transport.
   if ($data) {
     $data = json_encode(array('data' => $data));
-    if (in_array($method, array('POST', 'PUT'))) {
+    if (in_array($method, array('POST', 'PUT', 'DELETE'))) {
       $headers = array(
         'Content-Type' => 'application/json',
         'Content-Length' => strlen($data),
       );
     }
-    else if (in_array($method, array('GET', 'DELETE'))) {
+    else if (in_array($method, array('GET'))) {
       $url .= '?' . http_build_query($data);
     }
   }
@@ -3466,7 +3466,7 @@ function terminus_request($realm, $uuid, $path = FALSE, $method = 'GET', $data =
         break;
 
       case 'DELETE':
-        $response = Requests::delete($url, $headers, terminus_requests_options());
+        $response = Requests::request($url, $headers, $data, Requests::DELETE, terminus_requests_options());
         break;
 
       case 'POST':
