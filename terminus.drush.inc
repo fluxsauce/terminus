@@ -11,8 +11,7 @@ define('TERMINUS_HOST', 'terminus.getpantheon.com');
 date_default_timezone_set('UTC');
 
 // Requests - Library used for HTTP requests.
-require_once __DIR__ . '/vendor/rmccue/requests/library/Requests.php';
-Requests::register_autoloader();
+require 'vendor/autoload.php';
 
 /**
  * Unified configuration for Requests.
